@@ -11,6 +11,9 @@ de ernoerno226@gmail.com (vérifié ici avec le SDK Firebase Admin).
 Variables d'environnement :
   FIREBASE_CREDENTIALS  contenu JSON du compte de service Firebase (OBLIGATOIRE)
   ADMIN_EMAIL           e-mail de l'administrateur (par défaut : ernoerno226@gmail.com)
+  SITE_URL              adresse du site de téléchargement (par défaut : https://munkoyomusique.onrender.com).
+                        Quand tu passeras à munkoyomusique.online, change seulement cette variable :
+                        les applications suivent sans mise à jour.
 """
 import json
 import os
@@ -21,6 +24,7 @@ from firebase_admin import auth, credentials, firestore, messaging
 from flask import Flask, jsonify, request
 
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "ernoerno226@gmail.com").strip().lower()
+SITE_URL = os.environ.get("SITE_URL", "https://munkoyomusique.onrender.com").strip().rstrip("/")
 SUJET = "tous"
 CANAL = "annonces"
 
@@ -98,6 +102,7 @@ def mise_a_jour():
         "versionName": nom,
         "message": texte,
         "obligatoire": bool(data.get("obligatoire", False)),
+        "url": SITE_URL,
         "date": int(time.time() * 1000),
     })
 
@@ -105,7 +110,7 @@ def mise_a_jour():
     if actif:
         identifiant = envoyer_a_tous(
             "Mise à jour disponible",
-            texte or f"La version {nom} de MUNKOYO MUSIQUE est disponible. Télécharge-la sur le site.",
-            {"type": "update"},
+            texte or f"La version {nom} de MUNKOYO MUSIQUE est disponible. Appuie ici pour la télécharger sur {SITE_URL.replace('https://', '')}.",
+            {"type": "update", "url": SITE_URL},
         )
     return jsonify({"ok": True, "fcm": identifiant})

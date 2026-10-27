@@ -17,6 +17,7 @@ Variables d'environnement :
                         Quand tu passeras à munkoyomusique.online, change seulement cette variable :
                         les applications suivent sans mise à jour.
 """
+import hmac
 import json
 import os
 import time
@@ -278,3 +279,55 @@ def staff_notifier():
         return jsonify({"ok": True})
 
     return jsonify({"erreur": "type inconnu"}), 400
+
+
+# ---------------------------------------------------------------------------
+# v1.4 : fichiers audio (karaoké partagé), diagnostic du stockage, notification quotidienne
+# ---------------------------------------------------------------------------
+@app.post("/api/staff/audio-url")
+def staff_audio_url():
+    """Lien temporaire pour envoyer un karaoké (M4A ou MP3) sur Cloudflare R2."""
+    jeton = utilisateur_connecte()
+    if not jeton:
+        return jsonify({"erreur": "accès refusé"}), 403
+    data = request.get_json(silent=True) or {}
+    taille = int(data.get("taille", 0))
+    type_ = str(data.get("type", ""))
+    if type_ not in ("audio/mp4", "audio/mpeg") or taille <= 0 or taille > 60_000_000:
+        return jsonify({"erreur": "fichier audio refusé (M4A ou MP3, 60 Mo maximum)"}), 400
+    cle = "karaoke/%s.m4a" % uuid.uuid4().hex
+    lien = _client_r2().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": os.environ["R2_BUCKET"], "Key": cle, "ContentType": type_},
+        ExpiresIn=900,
+    )
+    return jsonify({"uploadUrl": lien, "publicUrl": os.environ["R2_PUBLIC_URL"].rstrip("/") + "/" + cle})
+
+
+@app.get("/api/staff/sante")
+def staff_sante():
+    """Diagnostic : indique si le stockage R2 est configuré (sans jamais afficher les secrets)."""
+    attendues = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_PUBLIC_URL")
+    manquantes = [v for v in attendues if not os.environ.get(v)]
+    return jsonify({"pret": not manquantes, "variables_manquantes": manquantes})
+
+
+MESSAGES_QUOTIDIENS = [
+    ("Bonjour !", "Découvre une chanson nouvelle aujourd'hui sur MUNKOYO MUSIQUE."),
+    ("Ta musique t'attend", "Lance une recherche et ajoute un titre à ta playlist."),
+    ("Essaie le karaoké", "Chante sur ta chanson préférée et partage-la dans ton staff."),
+    ("Pense à tes staffs", "Tes amis ont peut-être partagé de nouvelles chansons."),
+]
+
+
+@app.post("/api/cron/quotidien")
+def cron_quotidien():
+    """Notification quotidienne. À appeler une fois par jour (cron externe), avec l'en-tête X-Cron-Secret."""
+    attendu = os.environ.get("CRON_SECRET", "")
+    recu = request.headers.get("X-Cron-Secret", "")
+    if not attendu or not hmac.compare_digest(recu, attendu):
+        return jsonify({"erreur": "accès refusé"}), 403
+    import datetime as dt
+    titre, texte = MESSAGES_QUOTIDIENS[dt.date.today().toordinal() % len(MESSAGES_QUOTIDIENS)]
+    envoyer_a_tous(titre, texte, {"type": "quotidien"})
+    return jsonify({"ok": True})

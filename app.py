@@ -331,3 +331,21 @@ def cron_quotidien():
     titre, texte = MESSAGES_QUOTIDIENS[dt.date.today().toordinal() % len(MESSAGES_QUOTIDIENS)]
     envoyer_a_tous(titre, texte, {"type": "quotidien"})
     return jsonify({"ok": True})
+
+
+@app.post("/api/staff/fichier-url")
+def staff_fichier_url():
+    """Lien de lecture temporaire (1 h) pour une image de staff/playlist ou un karaoké : le bucket peut rester privé."""
+    jeton = utilisateur_connecte()
+    if not jeton:
+        return jsonify({"erreur": "accès refusé"}), 403
+    data = request.get_json(silent=True) or {}
+    m = re.search(r"/((?:staffs|karaoke)/[A-Za-z0-9]+\.(?:jpg|m4a))$", str(data.get("url", "")))
+    if not m:
+        return jsonify({"erreur": "fichier inconnu"}), 400
+    lien = _client_r2().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": os.environ["R2_BUCKET"], "Key": m.group(1)},
+        ExpiresIn=3600,
+    )
+    return jsonify({"url": lien})
